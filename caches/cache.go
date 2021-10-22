@@ -6,6 +6,7 @@ import (
 	"github.com/ejfitzgerald/clang-tidy-cache/utils"
 	"io"
 	"os"
+	"os/exec"
 )
 
 type Cacher interface {
@@ -15,15 +16,8 @@ type Cacher interface {
 	SaveEntry(digest []byte, content []byte) error
 }
 
-func computeDigestForConfigFile(projectRoot string) ([]byte, error) {
-	configFilePath, err := utils.FindInParents(projectRoot, ".clang-tidy")
-	if err != nil {
-		return nil, err
-	}
-
-	// compute the SHA of the configuration file
-	// read the contents of the file am hash it
-	f, err := os.Open(configFilePath)
+func computeFileDigest(path string) ([]byte, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +34,27 @@ func computeDigestForConfigFile(projectRoot string) ([]byte, error) {
 	return digest, nil
 }
 
-func ComputeFingerPrint(invocation *clang.TidyInvocation, wd string, args []string) ([]byte, error) {
+func computeDigestForConfigFile(projectRoot string) ([]byte, error) {
+	configFilePath, err := utils.FindInParents(projectRoot, ".clang-tidy")
+	if err != nil {
+		return nil, err
+	}
+
+	return computeFileDigest(configFilePath)
+}
+
+func computeDigestForClangTidyBinary(clangTidyPath string) ([]byte, error) {
+	// resolve to a full path: e.g. `clang-tidy` -> `/usr/local/bin/clang-tidy`
+	path, err := exec.LookPath(clangTidyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return computeFileDigest(path)
+}
+
+func ComputeFingerPrint(clangTidyPath string, baseDir string, invocation *clang.TidyInvocation,
+	wd string, args []string) ([]byte, error) {
 
 	// extract the compilation target command flags from the database
 	targetFlags, err := clang.ExtractCompilationTarget(invocation.DatabaseRoot, invocation.TargetPath)
@@ -55,7 +69,7 @@ func ComputeFingerPrint(invocation *clang.TidyInvocation, wd string, args []stri
 	}
 
 	// main part of the fingerprint check generate the preprocessed output file and create a SHA256 of it
-	preProcessedDigest, err := clang.EvaluatePreprocessedFile(targetFlags.Directory, compileCommand)
+	preProcessedDigest, err := clang.EvaluatePreprocessedFile(targetFlags.Directory, baseDir, compileCommand)
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +80,17 @@ func ComputeFingerPrint(invocation *clang.TidyInvocation, wd string, args []stri
 		return nil, err
 	}
 
+	// we also need to include the clang-tidy binary since different version have different output
+	binaryDigest, err := computeDigestForClangTidyBinary(clangTidyPath)
+	if err != nil {
+		return nil, err
+	}
+
 	// combine all the digests to generate a unique fingerprint
 	hasher := sha256.New()
 	hasher.Write(preProcessedDigest)
 	hasher.Write(configDigest)
+	hasher.Write(binaryDigest)
 	fingerPrint := hasher.Sum(nil)
 
 	return fingerPrint, nil
