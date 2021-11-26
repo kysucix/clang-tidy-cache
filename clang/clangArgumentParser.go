@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -77,8 +78,9 @@ func EvaluatePreprocessedFile(buildRoot string, baseDir string, command *Compile
 	// run the preprocessor
 	cmd := exec.Command(command.Compiler, args...)
 	cmd.Dir = buildRoot
-	err = cmd.Run()
+	stdoutStderr, err := cmd.CombinedOutput()
 	if err != nil {
+		fmt.Printf("%s", stdoutStderr)
 		return nil, err
 	}
 
