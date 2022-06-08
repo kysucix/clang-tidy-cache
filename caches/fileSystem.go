@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"time"
 )
 
 type FileSystemCache struct {
@@ -45,6 +46,10 @@ func (c *FileSystemCache) FindEntry(digest []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	currentTime := time.Now().Local()
+
+	// Change mtime and atime in case of cache hit.
+	os.Chtimes(entryPath, currentTime, currentTime)
 	defer source.Close()
 
 	return ioutil.ReadAll(source)
